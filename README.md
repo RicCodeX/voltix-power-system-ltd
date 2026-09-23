@@ -40,7 +40,7 @@ Website form (POST)
    Confirm to customer           Email the customer          Save nurture status
                                  Save status + 3-day date    + follow-up date (14 days)
 
-Separate workflows:  Lead Follow-up Scheduler (daily 9am, WARM reminders)
+Separate workflows:  Lead Follow-up Scheduler (weekdays 9am: WARM reminder, COLD nurture emails 2 and 3)
                      Lead Capture Error Alerts (runs when any node fails)
 ```
 
@@ -52,7 +52,17 @@ Separate workflows:  Lead Follow-up Scheduler (daily 9am, WARM reminders)
 | **WARM** | Alert to follow up today | Friendly email asking for quantity, delivery date and budget approval | `nurture_stage = WARM_PENDING`, reminder date +3 days |
 | **COLD** | No alert | Thank-you email inviting them to reply for a quote (includes a STOP opt-out) | `nurture_stage = NURTURE_1`, next contact +14 days |
 
-**Follow-up Scheduler (daily, 9am Lagos):** finds WARM leads still `WARM_PENDING` whose date has arrived, sends sales one reminder, then marks them `WARM_REMINDED`. Set `nurture_stage = CONTACTED` in Supabase to stop a reminder.
+### Follow-up Scheduler (separate workflow, weekdays 9am Lagos time)
+
+The main workflow acts instantly and never waits. It saves a **stage** and a **next contact date** on each lead. The scheduler then finds leads whose date has arrived, acts, and moves them to the next stage. The database holds the state, so nothing is parked inside a running execution and every lead's status can be read with a simple query.
+
+| Lead type | Stage after the main workflow | Scheduler action | Next stage |
+|---|---|---|---|
+| WARM | `WARM_PENDING` (date +3 days) | One reminder email to sales | `WARM_REMINDED` |
+| COLD | `NURTURE_1` (date +14 days) | Nurture email 2: a friendly check-in | `NURTURE_2` (date +14 days) |
+| COLD | `NURTURE_2` | Nurture email 3: "closing the loop", the last message | `DORMANT` |
+
+**Stopping a lead:** set `nurture_stage` to `CONTACTED` (sales has followed up) or `UNSUBSCRIBED` (the customer replied STOP) in Supabase. The scheduler only picks up the exact stages above, so any other value takes the lead out of the process.
 
 ## 5. Data model
 
@@ -133,11 +143,12 @@ python test_leads.py --test-email you@gmail.com
 | Supabase node error about a column | Table is missing a column the workflow writes | Add the column, then re-run |
 | Gmail node fails | OAuth token expired | Re-authorise the Gmail credential |
 | No lead stored, no error | Form is posting to the test URL, or the workflow is inactive | Use the production webhook URL and activate the workflow |
+| A customer keeps receiving follow-ups they no longer want | Their `nurture_stage` is still a live stage | Set it to `UNSUBSCRIBED` or `CONTACTED` in Supabase |
 | Customer email shows blank name or phone | Form field name does not match the mapping in Clean Lead Data | Align the field names |
 
 ## 10. Known limitations and roadmap
 
-- A follow-up loop for COLD leads (second and third nurture emails, then marking them dormant).
+- Detect customer replies automatically, so follow-ups stop without anyone changing the stage by hand.
 - A WhatsApp or Telegram alert for HOT leads, with escalation if not marked `CONTACTED` within 30 minutes.
 - Webhook hardening and input validation (section 7).
 - Detecting a returning lead by email and linking their submissions.
